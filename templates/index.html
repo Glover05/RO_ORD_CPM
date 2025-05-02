@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ordonnancement CPM</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .critical-task {
+            background-color: #ffcccc;
+        }
+        .task-form {
+            margin-bottom: 20px;
+        }
+        .results {
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1>Ordonnancement des tâches - Méthode du Chemin Critique</h1>
+        
+        <div class="card mb-4">
+            <div class="card-header">
+                <h2>Définition des tâches</h2>
+            </div>
+            <div class="card-body">
+                <form id="taskForm" class="task-form">
+                    <div class="row mb-3">
+                        <div class="col">
+                            <label for="taskId" class="form-label">ID de la tâche</label>
+                            <input type="text" id="taskId" class="form-control" required>
+                        </div>
+                        <div class="col">
+                            <label for="taskDescription" class="form-label">Description</label>
+                            <input type="text" id="taskDescription" class="form-control" required>
+                        </div>
+                        <div class="col">
+                            <label for="taskDuration" class="form-label">Durée</label>
+                            <input type="number" id="taskDuration" class="form-control" min="1" required>
+                        </div>
+                        <div class="col d-flex align-items-end">
+                            <button type="button" id="addTask" class="btn btn-primary">Ajouter la tâche</button>
+                        </div>
+                    </div>
+                </form>
+                
+                <table class="table table-bordered" id="taskTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Description</th>
+                            <th>Durée</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="card mb-4">
+            <div class="card-header">
+                <h2>Dépendances entre les tâches</h2>
+            </div>
+            <div class="card-body">
+                <form id="dependencyForm">
+                    <div class="row mb-3">
+                        <div class="col">
+                            <label for="fromTask" class="form-label">De la tâche</label>
+                            <select id="fromTask" class="form-select" required>
+                                <option value="">Sélectionner une tâche</option>
+                            </select>
+                        </div>
+                        <div class="col">
+                            <label for="toTask" class="form-label">Vers la tâche</label>
+                            <select id="toTask" class="form-select" multiple required>
+                                <option value="">Sélectionner une tâche</option>
+                            </select>
+                        </div>
+                        <div class="col d-flex align-items-end">
+                            <button type="button" id="addDependency" class="btn btn-primary">Ajouter la dépendance</button>
+                        </div>
+                    </div>
+                </form>
+                
+                <table class="table table-bordered" id="dependencyTable">
+                    <thead>
+                        <tr>
+                            <th>De la tâche</th>
+                            <th>Vers la tâche</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <button id="calculate" class="btn btn-success">Calculer l'ordonnancement</button>
+        
+        
+        <div class="results" id="results" style="display: none;">
+            <h2>Résultats</h2>
+            
+            <div class="alert alert-info" id="projectDuration"></div>
+            
+            <div class="mb-3">
+                <h3>Chemin critique</h3>
+                <div id="criticalPath" class="alert alert-danger"></div>
+            </div>
+            
+            <h3>Détails des tâches</h3>
+            <table class="table table-bordered" id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>Tâche</th>
+                        <th>Description</th>
+                        <th>Durée</th>
+                        <th>Début au plus tôt</th>
+                        <th>Fin au plus tôt</th>
+                        <th>Début au plus tard</th>
+                        <th>Fin au plus tard</th>
+                        <th>Marge</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
+        <div class="mb-5 mt-4">
+            <h2>Graphe CPM</h2>
+            <div id="advancedGraphContainer" class="border p-3 bg-light" style="overflow-x: auto; min-height: 450px;">
+                <!-- Le graphe SVG sera inséré ici -->
+            </div>
+        </div>
+
+    </div>
+    
+    <script>
+        // Stockage des données
+        const tasks = [];
+        const dependencies = [];
+        
+        // Fonctions utilitaires
+        function updateTaskSelects() {
+            const selects = [document.getElementById('fromTask'), document.getElementById('toTask')];
+            
+            selects.forEach(select => {
+                const currentValue = select.value;
+                if (tasks.length === 0) {
+                    select.innerHTML = '';
+                } else {
+                    select.innerHTML = '<option value="">Sélectionner une tâche</option>';
+                }
+                // select.innerHTML = '<option value="">Sélectionner une tâche</option>';
+                
+                tasks.forEach(task => {
+                    const option = document.createElement('option');
+                    option.value = task.id;
+                    option.textContent = `${task.id} - ${task.description}`;
+                    select.appendChild(option);
+                });
+                
+                if (currentValue && tasks.some(t => t.id === currentValue)) {
+                    select.value = currentValue;
+                }
+            });
+        }
+        
+        function addTaskToTable(task) {
+            const tbody = document.querySelector('#taskTable tbody');
+            const row = document.createElement('tr');
+            
+            row.innerHTML = `
+                <td>${task.id}</td>
+                <td>${task.description}</td>
+                <td>${task.duration}</td>
+                <td>
+                    <button class="btn btn-sm btn-danger delete-task" data-id="${task.id}">Supprimer</button>
+                </td>
+            `;
+            
+            tbody.appendChild(row);
+            
+            // Ajouter l'événement de suppression
+            row.querySelector('.delete-task').addEventListener('click', function() {
+                const taskId = this.getAttribute('data-id');
+                const index = tasks.findIndex(t => t.id === taskId);
+                
+                if (index !== -1) {
+                    tasks.splice(index, 1);
+                    row.remove();
+                    updateTaskSelects();
+                    
+                    // Supprimer également les dépendances associées
+                    const depsToRemove = dependencies.filter(
+                        d => d.from === taskId || d.to === taskId
+                    );
+                    
+                    depsToRemove.forEach(dep => {
+                        const depIndex = dependencies.indexOf(dep);
+                        if (depIndex !== -1) {
+                            dependencies.splice(depIndex, 1);
+                            document.querySelector(`#dependencyTable tr[data-from="${dep.from}"][data-to="${dep.to}"]`)?.remove();
+                        }
+                    });
+                }
+            });
+            
+            updateTaskSelects();
+        }
+        
+        function addDependencyToTable(dependency) {
+            const tbody = document.querySelector('#dependencyTable tbody');
+            const row = document.createElement('tr');
+            
+            row.setAttribute('data-from', dependency.from);
+            row.setAttribute('data-to', dependency.to);
+            
+            row.innerHTML = `
+                <td>${dependency.from}</td>
+                <td>${dependency.to}</td>
+                <td>
+                    <button class="btn btn-sm btn-danger delete-dependency">Supprimer</button>
+                </td>
+            `;
+            
+            tbody.appendChild(row);
+            
+            // Ajouter l'événement de suppression
+            row.querySelector('.delete-dependency').addEventListener('click', function() {
+                const from = row.getAttribute('data-from');
+                const to = row.getAttribute('data-to');
+                const index = dependencies.findIndex(d => d.from === from && d.to === to);
+                
+                if (index !== -1) {
+                    dependencies.splice(index, 1);
+                    row.remove();
+                }
+            });
+        }
+        
+        // Événements
+        document.getElementById('addTask').addEventListener('click', function() {
+            const idInput = document.getElementById('taskId');
+            const descInput = document.getElementById('taskDescription');
+            const durationInput = document.getElementById('taskDuration');
+            
+            const id = idInput.value.trim();
+            const description = descInput.value.trim();
+            const duration = parseInt(durationInput.value);
+            
+            if (!id || !description || isNaN(duration) || duration <= 0) {
+                alert('Veuillez remplir tous les champs correctement.');
+                return;
+            }
+            
+            if (tasks.some(t => t.id === id)) {
+                alert('Cet identifiant de tâche existe déjà.');
+                return;
+            }
+            
+            const task = { id, description, duration };
+            tasks.push(task);
+            addTaskToTable(task);
+            
+            // Réinitialiser le formulaire
+            idInput.value = '';
+            descInput.value = '';
+            durationInput.value = '';
+        });
+        
+        document.getElementById('addDependency').addEventListener('click', function() {
+            const fromSelect = document.getElementById('fromTask');
+            const toSelect = document.getElementById('toTask');
+            
+            const from = fromSelect.value;
+            const to = toSelect.value;
+            
+            if (!from || !to) {
+                alert('Veuillez sélectionner les tâches.');
+                return;
+            }
+            
+            if (from === to) {
+                alert('Une tâche ne peut pas dépendre d\'elle-même.');
+                return;
+            }
+            
+            if (dependencies.some(d => d.from === from && d.to === to)) {
+                alert('Cette dépendance existe déjà.');
+                return;
+            }
+            
+            const dependency = { from, to };
+            dependencies.push(dependency);
+            addDependencyToTable(dependency);
+            
+            // Réinitialiser le formulaire
+            fromSelect.value = '';
+            toSelect.value = '';
+        });
+        
+        document.getElementById('calculate').addEventListener('click', function() {
+            if (tasks.length === 0) {
+                alert('Veuillez ajouter des tâches avant de calculer.');
+                return;
+            }
+            
+            // Préparer les données pour l'envoi
+            const data = {
+                tasks: tasks,
+                dependencies: dependencies
+            };
+            
+            // Envoyer les données au serveur
+            fetch('/calculate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(result => {
+                displayResults(result);
+            })
+            .catch(error => {
+                console.error('Erreur:', error);
+                alert('Une erreur s\'est produite lors du calcul.');
+            });
+        });
+        
+        function displayResults(result) {
+            // Afficher la section des résultats
+            document.getElementById('results').style.display = 'block';
+            
+            // Afficher la durée du projet
+            document.getElementById('projectDuration').textContent = `Durée totale du projet: ${result.project_duration} unités de temps`;
+            
+            // Afficher le chemin critique
+            const criticalPathElement = document.getElementById('criticalPath');
+            criticalPathElement.textContent = `Tâches critiques: ${result.critical_path.join(' → ')}`;
+            
+            // Remplir le tableau des résultats
+            const tbody = document.querySelector('#resultsTable tbody');
+            tbody.innerHTML = '';
+            
+            Object.entries(result.tasks).forEach(([taskId, taskData]) => {
+                const row = document.createElement('tr');
+                
+                // Ajouter une classe pour les tâches critiques
+                if (result.critical_path.includes(taskId)) {
+                    row.classList.add('critical-task');
+                }
+                
+                row.innerHTML = `
+                    <td>${taskId}</td>
+                    <td>${taskData.description}</td>
+                    <td>${taskData.duration}</td>
+                    <td>${taskData.early_start}</td>
+                    <td>${taskData.early_finish}</td>
+                    <td>${taskData.late_start}</td>
+                    <td>${taskData.late_finish}</td>
+                    <td>${taskData.slack}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+            
+            // Défiler jusqu'aux résultats
+            document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+                    // Ajouter le graphe CPM avancé
+            const graphContainer = document.getElementById('advancedGraphContainer');
+            if (graphContainer) {
+                // Effacer le contenu précédent
+                graphContainer.innerHTML = '';
+                
+                // Créer et ajouter le graphe SVG
+                const cpmGraph = createAdvancedCPMGraph(result);
+                graphContainer.appendChild(cpmGraph);
+            }
+        }
+
+        
+        function createAdvancedCPMGraph(result) {
+            // Configuration de base
+            const svgNS = "http://www.w3.org/2000/svg";
+            const containerWidth = 900;
+            const containerHeight = 400;
+            
+            // Créer l'élément SVG principal
+            const svg = document.createElementNS(svgNS, "svg");
+            svg.setAttribute("width", containerWidth);
+            svg.setAttribute("height", containerHeight);
+            svg.setAttribute("viewBox", `0 0 ${containerWidth} ${containerHeight}`);
+            svg.style.backgroundColor = "#f8f9fa";
+            
+            // Créer un groupe pour tous les éléments du graphe
+            const graphGroup = document.createElementNS(svgNS, "g");
+            svg.appendChild(graphGroup);
+            
+            // Ajouter un titre au graphe
+            const title = document.createElementNS(svgNS, "text");
+            title.setAttribute("x", 20);
+            title.setAttribute("y", 30);
+            title.setAttribute("font-size", "18px");
+            title.setAttribute("font-weight", "bold");
+            title.textContent = "Graphe CPM";
+            
+            // Créer un fond jaune pour le titre
+            const titleBg = document.createElementNS(svgNS, "rect");
+            titleBg.setAttribute("x", 10);
+            titleBg.setAttribute("y", 10);
+            titleBg.setAttribute("width", 180);
+            titleBg.setAttribute("height", 30);
+            titleBg.setAttribute("fill", "yellow");
+            titleBg.setAttribute("stroke", "black");
+            
+            graphGroup.appendChild(titleBg);
+            graphGroup.appendChild(title);
+            
+            // Définir la disposition des nœuds (positions x, y)
+            // Nous allons créer une disposition dynamique basée sur la topologie du graphe
+            const taskObjects = {}; // Stocker les objets de tâches pour référence facile
+            const taskNodes = {}; // Stocker les positions calculées
+            const criticalPath = result.critical_path;
+            
+            // Créer les objets de tâche
+            Object.entries(result.tasks).forEach(([taskId, taskData]) => {
+                taskObjects[taskId] = {
+                    id: taskId,
+                    ...taskData,
+                    isCritical: criticalPath.includes(taskId),
+                    successors: [],
+                    predecessors: []
+                };
+            });
+            
+            // Ajouter des nœuds de début et de fin si nécessaire
+            if (!taskObjects["Deb"]) {
+                taskObjects["Deb"] = {
+                    id: "Deb",
+                    description: "Début",
+                    duration: 0,
+                    early_start: 0,
+                    early_finish: 0,
+                    late_start: 0,
+                    late_finish: 0,
+                    slack: 0,
+                    isCritical: true,
+                    successors: [],
+                    predecessors: []
+                };
+            }
+            
+            if (!taskObjects["fin"]) {
+                const projectDuration = result.project_duration;
+                taskObjects["fin"] = {
+                    id: "fin",
+                    description: "Fin",
+                    duration: 0,
+                    early_start: projectDuration,
+                    early_finish: projectDuration,
+                    late_start: projectDuration,
+                    late_finish: projectDuration,
+                    slack: 0,
+                    isCritical: true,
+                    successors: [],
+                    predecessors: []
+                };
+            }
+            
+            // Construire les relations de successeurs/prédécesseurs
+            // Utiliser les dépendances définies par l'utilisateur
+            dependencies.forEach(dep => {
+                const fromTask = taskObjects[dep.from];
+                const toTask = taskObjects[dep.to];
+                
+                if (fromTask && toTask) {
+                    fromTask.successors.push(toTask.id);
+                    toTask.predecessors.push(fromTask.id);
+                }
+            });
+            
+            // Pour les tâches sans prédécesseurs, les connecter au Début
+            Object.values(taskObjects).forEach(task => {
+                if (task.id !== "Deb" && task.predecessors.length === 0) {
+                    task.predecessors.push("Deb");
+                    taskObjects["Deb"].successors.push(task.id);
+                }
+            });
+            
+            // Pour les tâches sans successeurs, les connecter à la Fin
+            Object.values(taskObjects).forEach(task => {
+                if (task.id !== "fin" && task.successors.length === 0) {
+                    task.successors.push("fin");
+                    taskObjects["fin"].predecessors.push(task.id);
+                }
+            });
+            
+            // Calculer le niveau pour chaque nœud (pour le positionnement vertical)
+            const nodeRanks = {};
+            const assignRank = (taskId, rank = 0) => {
+                if (nodeRanks[taskId] === undefined || rank > nodeRanks[taskId]) {
+                    nodeRanks[taskId] = rank;
+                    const task = taskObjects[taskId];
+                    task.successors.forEach(succId => {
+                        assignRank(succId, rank + 1);
+                    });
+                }
+            };
+            
+            // Commencer l'assignation de rangs à partir du nœud de début
+            assignRank("Deb");
+            
+            // Organiser les nœuds par rang
+            const rankGroups = {};
+            Object.entries(nodeRanks).forEach(([taskId, rank]) => {
+                if (!rankGroups[rank]) {
+                    rankGroups[rank] = [];
+                }
+                rankGroups[rank].push(taskId);
+            });
+            
+            // Positionner les nœuds horizontalement par rang et verticalement pour éviter les chevauchements
+            const maxRank = Math.max(...Object.keys(rankGroups).map(r => parseInt(r)));
+            const horizontalGap = containerWidth / (maxRank + 2);
+            
+            Object.entries(rankGroups).forEach(([rank, taskIds]) => {
+                const rankInt = parseInt(rank);
+                const verticalSpacing = containerHeight / (taskIds.length + 1);
+                
+                taskIds.forEach((taskId, idx) => {
+                    const x = (rankInt + 1) * horizontalGap;
+                    const y = (idx + 1) * verticalSpacing;
+                    
+                    taskNodes[taskId] = { x, y };
+                });
+            });
+            
+            // Dessiner les nœuds et les arêtes
+            const nodeRadius = 30;
+            const nodeStroke = 1;
+            const criticalColor = "#f33";
+            const normalColor = "#333";
+            
+            // Fonction pour dessiner une tâche (nœud)
+            function drawTaskNode(taskId, x, y) {
+                const task = taskObjects[taskId];
+                const isCritical = task.isCritical;
+                const nodeGroup = document.createElementNS(svgNS, "g");
+                
+                // Cercle principal (ou cercle divisé pour montrer les dates)
+                const circle = document.createElementNS(svgNS, "circle");
+                circle.setAttribute("cx", x);
+                circle.setAttribute("cy", y);
+                circle.setAttribute("r", nodeRadius);
+                circle.setAttribute("fill", taskId === "Deb" || taskId === "fin" ? "#f00" : "white");
+                circle.setAttribute("stroke", isCritical ? criticalColor : normalColor);
+                circle.setAttribute("stroke-width", isCritical ? 2 : nodeStroke);
+                nodeGroup.appendChild(circle);
+                
+                if (taskId !== "Deb" && taskId !== "fin") {
+                    // Ligne horizontale pour diviser le cercle
+                    const horizontalLine = document.createElementNS(svgNS, "line");
+                    horizontalLine.setAttribute("x1", x - nodeRadius);
+                    horizontalLine.setAttribute("y1", y);
+                    horizontalLine.setAttribute("x2", x + nodeRadius);
+                    horizontalLine.setAttribute("y2", y);
+                    horizontalLine.setAttribute("stroke", normalColor);
+                    horizontalLine.setAttribute("stroke-width", nodeStroke);
+                    nodeGroup.appendChild(horizontalLine);
+                    
+                    // Afficher early_start en haut à gauche
+                    const earlyStartText = document.createElementNS(svgNS, "text");
+                    earlyStartText.setAttribute("x", x - nodeRadius/2);
+                    earlyStartText.setAttribute("y", y - nodeRadius/4);
+                    earlyStartText.setAttribute("font-size", "12px");
+                    earlyStartText.setAttribute("text-anchor", "middle");
+                    earlyStartText.textContent = task.early_start;
+                    nodeGroup.appendChild(earlyStartText);
+                    
+                    // Afficher early_finish en haut à droite
+                    const earlyFinishText = document.createElementNS(svgNS, "text");
+                    earlyFinishText.setAttribute("x", x + nodeRadius/2);
+                    earlyFinishText.setAttribute("y", y - nodeRadius/4);
+                    earlyFinishText.setAttribute("font-size", "12px");
+                    earlyFinishText.setAttribute("text-anchor", "middle");
+                    earlyFinishText.textContent = task.early_finish;
+                    nodeGroup.appendChild(earlyFinishText);
+                    
+                    // Afficher late_start en bas à gauche
+                    const lateStartText = document.createElementNS(svgNS, "text");
+                    lateStartText.setAttribute("x", x - nodeRadius/2);
+                    lateStartText.setAttribute("y", y + nodeRadius/2);
+                    lateStartText.setAttribute("font-size", "12px");
+                    lateStartText.setAttribute("text-anchor", "middle");
+                    lateStartText.textContent = task.late_start;
+                    nodeGroup.appendChild(lateStartText);
+                    
+                    // Afficher late_finish en bas à droite
+                    const lateFinishText = document.createElementNS(svgNS, "text");
+                    lateFinishText.setAttribute("x", x + nodeRadius/2);
+                    lateFinishText.setAttribute("y", y + nodeRadius/2);
+                    lateFinishText.setAttribute("font-size", "12px");
+                    lateFinishText.setAttribute("text-anchor", "middle");
+                    lateFinishText.textContent = task.late_finish;
+                    nodeGroup.appendChild(lateFinishText);
+                } else {
+                    // Afficher 0 ou la durée du projet pour début/fin
+                    const timeText = document.createElementNS(svgNS, "text");
+                    timeText.setAttribute("x", x);
+                    timeText.setAttribute("y", y + 5);
+                    timeText.setAttribute("font-size", "14px");
+                    timeText.setAttribute("text-anchor", "middle");
+                    timeText.setAttribute("fill", "white");
+                    timeText.textContent = taskId === "Deb" ? "0" : result.project_duration;
+                    nodeGroup.appendChild(timeText);
+                }
+                
+                // Étiquette de la tâche avec sa durée
+                const labelText = document.createElementNS(svgNS, "text");
+                labelText.setAttribute("x", x);
+                labelText.setAttribute("y", y - nodeRadius - 5);
+                labelText.setAttribute("font-size", "14px");
+                labelText.setAttribute("font-weight", isCritical ? "bold" : "normal");
+                labelText.setAttribute("text-anchor", "middle");
+                labelText.setAttribute("fill", isCritical ? criticalColor : normalColor);
+                
+                if (taskId === "Deb") {
+                    labelText.textContent = "Déb";
+                } else if (taskId === "fin") {
+                    labelText.textContent = "fin";
+                } else {
+                    labelText.textContent = `${taskId}(${task.duration})`;
+                }
+                
+                nodeGroup.appendChild(labelText);
+                
+                // Afficher la marge en vert en haut du nœud
+                if (taskId !== "Deb" && taskId !== "fin" && task.slack > 0) {
+                    const slackBg = document.createElementNS(svgNS, "rect");
+                    slackBg.setAttribute("x", x - 12);
+                    slackBg.setAttribute("y", y - nodeRadius - 25);
+                    slackBg.setAttribute("width", 24);
+                    slackBg.setAttribute("height", 16);
+                    slackBg.setAttribute("fill", "#2a2");
+                    slackBg.setAttribute("rx", 4);
+                    nodeGroup.appendChild(slackBg);
+                    
+                    const slackText = document.createElementNS(svgNS, "text");
+                    slackText.setAttribute("x", x);
+                    slackText.setAttribute("y", y - nodeRadius - 12);
+                    slackText.setAttribute("font-size", "12px");
+                    slackText.setAttribute("text-anchor", "middle");
+                    slackText.setAttribute("fill", "white");
+                    slackText.textContent = task.slack;
+                    nodeGroup.appendChild(slackText);
+                }
+                
+                graphGroup.appendChild(nodeGroup);
+            }
+            
+            // Fonction pour dessiner une arête entre deux tâches
+            function drawEdge(fromId, toId) {
+                const fromNode = taskNodes[fromId];
+                const toNode = taskNodes[toId];
+                const fromTask = taskObjects[fromId];
+                const isCritical = fromTask.isCritical && taskObjects[toId].isCritical;
+                
+                // Calculer les points de connexion sur les cercles
+                const dx = toNode.x - fromNode.x;
+                const dy = toNode.y - fromNode.y;
+                const distance = Math.sqrt(dx*dx + dy*dy);
+                const fromX = fromNode.x + (dx * nodeRadius) / distance;
+                const fromY = fromNode.y + (dy * nodeRadius) / distance;
+                const toX = toNode.x - (dx * nodeRadius) / distance;
+                const toY = toNode.y - (dy * nodeRadius) / distance;
+                
+                // Créer le chemin de la flèche
+                const pathGroup = document.createElementNS(svgNS, "g");
+                
+                // Ligne principale
+                const path = document.createElementNS(svgNS, "path");
+                path.setAttribute("d", `M ${fromX} ${fromY} L ${toX} ${toY}`);
+                path.setAttribute("stroke", isCritical ? criticalColor : normalColor);
+                path.setAttribute("stroke-width", isCritical ? 2 : 1);
+                path.setAttribute("fill", "none");
+                path.setAttribute("marker-end", "url(#arrowhead)");
+                pathGroup.appendChild(path);
+                
+                // Ajouter l'étiquette de la tâche sur l'arête
+                if (fromId !== "Deb") {
+                    // Position de l'étiquette (milieu de l'arête)
+                    const labelX = (fromX + toX) / 2;
+                    const labelY = (fromY + toY) / 2 - 10;
+                    
+                    // Fond de l'étiquette
+                    const labelRect = document.createElementNS(svgNS, "rect");
+                    labelRect.setAttribute("x", labelX - 15);
+                    labelRect.setAttribute("y", labelY - 12);
+                    labelRect.setAttribute("width", 30);
+                    labelRect.setAttribute("height", 16);
+                    labelRect.setAttribute("fill", "white");
+                    labelRect.setAttribute("stroke", isCritical ? criticalColor : normalColor);
+                    labelRect.setAttribute("rx", 3);
+                    pathGroup.appendChild(labelRect);
+                    
+                    // Texte de l'étiquette
+                    const labelText = document.createElementNS(svgNS, "text");
+                    labelText.setAttribute("x", labelX);
+                    labelText.setAttribute("y", labelY);
+                    labelText.setAttribute("font-size", "12px");
+                    labelText.setAttribute("text-anchor", "middle");
+                    labelText.setAttribute("fill", isCritical ? criticalColor : normalColor);
+                    labelText.textContent = fromId;
+                    pathGroup.appendChild(labelText);
+                }
+                
+                graphGroup.appendChild(pathGroup);
+            }
+            
+            // Définir le marqueur de flèche pour les arêtes
+            const defs = document.createElementNS(svgNS, "defs");
+            const marker = document.createElementNS(svgNS, "marker");
+            marker.setAttribute("id", "arrowhead");
+            marker.setAttribute("markerWidth", "10");
+            marker.setAttribute("markerHeight", "7");
+            marker.setAttribute("refX", "9");
+            marker.setAttribute("refY", "3.5");
+            marker.setAttribute("orient", "auto");
+            
+            const polygon = document.createElementNS(svgNS, "polygon");
+            polygon.setAttribute("points", "0 0, 10 3.5, 0 7");
+            polygon.setAttribute("fill", "#333");
+            
+            marker.appendChild(polygon);
+            defs.appendChild(marker);
+            svg.appendChild(defs);
+            
+            // Dessiner toutes les arêtes d'abord
+            Object.values(taskObjects).forEach(task => {
+                task.successors.forEach(succId => {
+                    drawEdge(task.id, succId);
+                });
+            });
+            
+            // Puis dessiner tous les nœuds (pour qu'ils apparaissent au-dessus des arêtes)
+            Object.entries(taskNodes).forEach(([taskId, pos]) => {
+                drawTaskNode(taskId, pos.x, pos.y);
+            });
+            
+            return svg;
+        }
+
+
+    </script>
+</body>
+</html>
