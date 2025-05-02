@@ -151,12 +151,12 @@
             
             selects.forEach(select => {
                 const currentValue = select.value;
-                if (tasks.length === 0) {
-                    select.innerHTML = '';
-                } else {
-                    select.innerHTML = '<option value="">Sélectionner une tâche</option>';
-                }
-                // select.innerHTML = '<option value="">Sélectionner une tâche</option>';
+                //if (tasks.length === 0) {
+                  //  select.innerHTML = '';
+                //} else {
+                //    select.innerHTML = '<option value="">Sélectionner une tâche</option>';
+                //}
+                select.innerHTML = '<option value="">Sélectionner une tâche</option>';
                 
                 tasks.forEach(task => {
                     const option = document.createElement('option');
